@@ -8,5 +8,10 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": ""
+  "description": "",
+  "dependencies": {
+    "@slack/bolt": "^4.2.1",
+    "csv-parser": "^3.2.0",
+    "dotenv": "^16.4.7"
+  }
 }
