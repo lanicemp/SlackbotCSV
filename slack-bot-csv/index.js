@@ -12,7 +12,7 @@ function searchCSV(nameToFind) {
   return new Promise((resolve, reject) => {
     const results = [];
 
-    fs.createReadStream('contacts.csv')
+    fs.createReadStream('network_activation.csv')
       .pipe(csv())
       .on('data', (row) => {
         if (row['Name'].toLowerCase() === nameToFind.toLowerCase()) {
