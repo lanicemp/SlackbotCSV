@@ -1,1 +1,14 @@
+# Node modules
+node_modules/
+
+# Environment variables
 .env
+
+# Logs
+*.log
+
+# OS-specific stuff
+.DS_Store
+
+# Optional: ignore coverage or debug output
+coverage/
