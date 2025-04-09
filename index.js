@@ -156,7 +156,49 @@ const server = http.createServer(async (req, res) => {
     res.end(`Network Activation Slackbot is running!\n\nDebug data:\n${JSON.stringify(dataPreview, null, 2)}`);
     return;
   }
-
+  if (req.url.startsWith('/slack/oauth_redirect') && req.method === 'GET') {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const code = url.searchParams.get('code');
+  
+    if (!code) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Missing code');
+      return;
+    }
+  
+    const fetch = require('node-fetch');
+  
+    try {
+      const response = await fetch('https://slack.com/api/oauth.v2.access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: process.env.SLACK_CLIENT_ID,
+          client_secret: process.env.SLACK_CLIENT_SECRET,
+          redirect_uri: process.env.SLACK_REDIRECT_URI
+        })
+      });
+  
+      const result = await response.json();
+      console.log('OAuth response:', result);
+  
+      if (result.ok) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<h1>Slack App installed successfully!</h1>');
+      } else {
+        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.end(`<h1>OAuth Error: ${result.error}</h1>`);
+      }
+    } catch (err) {
+      console.error('OAuth Error:', err);
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('Internal server error');
+    }
+  
+    return;
+  }
+  
   // Handle Slack slash command
   if (req.url === '/slack/events' && req.method === 'POST') {
     console.log('✅ Slack POST request received at /slack/events');
