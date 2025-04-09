@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const http = require('http');
 const fs = require('fs');
 const csv = require('csv-parser');
@@ -338,7 +340,10 @@ const server = http.createServer(async (req, res) => {
 (async () => {
   try {
     await loadNetworkData();
-    
+    console.log("ENV Loaded:");
+    console.log("SLACK_BOT_TOKEN:", !!process.env.SLACK_BOT_TOKEN); // should be true
+    console.log("SLACK_SIGNING_SECRET:", !!process.env.SLACK_SIGNING_SECRET);
+
     server.listen(process.env.PORT || 3001, () => {
       console.log(`Network Activation Slackbot is running on http://localhost:${process.env.PORT || 3001}`);
       console.log('For Slack, use: https://your-ngrok-url/slack/events');
