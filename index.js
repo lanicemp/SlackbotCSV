@@ -245,7 +245,7 @@ const server = http.createServer(async (req, res) => {
               type: "section",
               text: {
                 type: "mrkdwn",
-                text: `*<${conn.LinkedIn}|${conn.Name}>* (${conn['💼 Current role']}) at *${conn['Current Organization']}*`
+                text: `*<${conn.LinkedIn}|${conn.Name}>* (${conn['💼 Current role']}) at *${conn['Current Organization']}*\nContact: ${conn['Best Pursuit Contact']}`
               }
             },
             {
