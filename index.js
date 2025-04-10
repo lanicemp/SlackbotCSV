@@ -209,6 +209,7 @@ const server = http.createServer(async (req, res) => {
         
 
         if (payload?.type === 'block_actions' && payload.actions?.[0]?.action_id === 'generate_email') {
+          
           const value = JSON.parse(payload.actions[0].value);
           await slackClient.views.open({
             trigger_id: payload.trigger_id,
@@ -237,6 +238,32 @@ const server = http.createServer(async (req, res) => {
           res.end();
           return;
         }
+        else if (['next_page', 'prev_page'].includes(payload.actions[0].action_id)) {
+          const action = payload.actions[0];
+          const { offset, term } = JSON.parse(action.value);
+        
+          const matches = findConnections(term);
+          const blocks = paginateResults(matches, offset, term);
+        
+          // Update the message (respond via response_url)
+          const fetch = require('node-fetch');
+          try {
+            await slackClient.chat.update({
+              channel: payload.channel.id,
+              ts: payload.message.ts,
+              text: `✅ Found ${matches.length} match(es) for "${term}":`,
+              blocks
+            });
+            
+          } catch (err) {
+            console.error('❌ Pagination error:', err);
+          }
+        
+          res.writeHead(200);
+          res.end();
+          return;
+        }
+        
 
         if (payload?.type === 'view_submission' && payload.view?.callback_id === 'email_modal') {
           const meta = JSON.parse(payload.view.private_metadata);
