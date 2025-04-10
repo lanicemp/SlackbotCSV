@@ -240,15 +240,39 @@ const server = http.createServer(async (req, res) => {
           }
           
           // Simple text response for now
-          const connectionsList = connections.map(conn => 
-            `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${conn['Current Organization']} - Contact: ${conn['Best Pursuit Contact']}`
-          ).join('\n');
+          const blocks = connections.map(conn => ([
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `*<${conn.LinkedIn}|${conn.Name}>* (${conn['💼 Current role']}) at *${conn['Current Organization']}*`
+              }
+            },
+            {
+              type: "actions",
+              elements: [
+                {
+                  type: "button",
+                  text: {
+                    type: "plain_text",
+                    text: "Request Intro Email"
+                  },
+                  action_id: "generate_email",
+                  value: JSON.stringify({
+                    staff: conn['Best Pursuit Contact'],
+                    connection: conn.Name,
+                    company: conn['Current Organization']
+                  })
+                }
+              ]
+            }
+          ])).flat();
                    
           res.writeHead(200, {'Content-Type': 'application/json'});
           res.end(JSON.stringify({
-            text: `*Connections found matching "${searchTerm}":*\n\n${connectionsList}`,
-            response_type: "in_channel",
-            mrkdwn: true
+            text: `*Connections found matching "${searchTerm}":*`,
+            blocks,
+            response_type: "in_channel"
           }));
         }
         // Check if this is an interactive action (button click)
