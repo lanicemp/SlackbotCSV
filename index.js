@@ -183,9 +183,6 @@ const server = http.createServer(async (req, res) => {
           const student = payload.view.state.values.student_name.name_input.value;
           const message = generateEmail(meta.staff, meta.connection, meta.company, student);
 
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ response_action: 'clear' }));
-
           try {
             await slackClient.chat.postMessage({
               channel: payload.user.id,
@@ -200,6 +197,8 @@ const server = http.createServer(async (req, res) => {
             console.error('❌ Failed to post DM:', dmErr);
           }
 
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ response_action: 'clear' }));
           return;
         }
 
