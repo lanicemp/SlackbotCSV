@@ -9,60 +9,56 @@ const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 let networkData = [];
 
+function normalizeText(text = '') {
+  return text.toLowerCase().replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim();
+}
+
 function loadNetworkData() {
   return new Promise((resolve, reject) => {
     networkData = [];
     fs.createReadStream('network_connections.csv')
       .pipe(csv())
-      .on('data', (row) => networkData.push(row))
+      .on('data', row => networkData.push(row))
       .on('end', () => {
         console.log('✅ Network data loaded.');
         resolve(networkData);
       })
-      .on('error', (error) => {
-        console.error('❌ Error loading CSV:', error);
-        reject(error);
-      });
+      .on('error', reject);
   });
 }
 
-function normalizeText(text = '') {
-  return text.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
 function findConnections(searchTerm) {
-  const normalizedSearch = normalizeText(searchTerm);
+  const normalizedTerm = normalizeText(searchTerm);
 
-  if (searchTerm.includes(":")) {
-    const extract = (label) => {
-      const match = searchTerm.match(new RegExp(`${label}:\\s*([^,]+)`, 'i'));
-      return match ? normalizeText(match[1]) : null;
+  if (searchTerm.includes(':')) {
+    const match = (label) => {
+      const value = (searchTerm.match(new RegExp(`${label}:\\s*([^,]+)`, 'i')) || [])[1];
+      return normalizeText(value);
     };
 
     const criteria = {
-      company: extract("company"),
-      title: extract("title"),
-      staff: extract("staff"),
-      industry: extract("industry"),
+      company: match('company'),
+      title: match('title'),
+      staff: match('staff'),
+      industry: match('industry')
     };
 
-    return networkData.filter((entry) => {
-      const company = normalizeText(entry['Current Organization']);
-      const title = normalizeText(entry['💼 Current role']);
-      const staff = normalizeText(entry['Best Pursuit Contact']);
-      const combined = `${company} ${title}`;
+    return networkData.filter(entry => {
+      const org = normalizeText(entry['Current Organization'] || '');
+      const role = normalizeText(entry['💼 Current role'] || '');
+      const staff = normalizeText(entry['Best Pursuit Contact'] || '');
+      const combo = `${org} ${role}`;
 
-      return (!criteria.company || company.includes(criteria.company)) &&
-             (!criteria.title || title.includes(criteria.title)) &&
+      return (!criteria.company || org.includes(criteria.company)) &&
+             (!criteria.title || role.includes(criteria.title)) &&
              (!criteria.staff || staff.includes(criteria.staff)) &&
-             (!criteria.industry || combined.includes(criteria.industry));
+             (!criteria.industry || combo.includes(criteria.industry));
     });
   }
 
   return networkData.filter(entry => {
-    const org = normalizeText(entry['Current Organization']);
-    const role = normalizeText(entry['💼 Current role']);
-    return org.includes(normalizedSearch) || role.includes(normalizedSearch);
+    return normalizeText(entry['Current Organization'] || '').includes(normalizedTerm) ||
+           normalizeText(entry['💼 Current role'] || '').includes(normalizedTerm);
   });
 }
 
@@ -87,85 +83,41 @@ ${student}`;
 
 const server = http.createServer(async (req, res) => {
   if (req.url === '/' || req.url === '') {
-    const preview = networkData.length > 0
-      ? {
-          totalRecords: networkData.length,
-          firstFewRecords: networkData.slice(0, 3),
-          columns: Object.keys(networkData[0] || {})
-        }
-      : 'No data loaded';
+    const preview = networkData.length > 0 ? {
+      totalRecords: networkData.length,
+      firstFewRecords: networkData.slice(0, 3),
+      columns: Object.keys(networkData[0] || {})
+    } : 'No data loaded';
 
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end(`Network Activation Slackbot is running!\n\nDebug:\n${JSON.stringify(preview, null, 2)}`);
     return;
   }
 
-  if (req.url.startsWith('/slack/oauth_redirect') && req.method === 'GET') {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const code = url.searchParams.get('code');
-    if (!code) {
-      res.writeHead(400);
-      res.end('Missing code');
-      return;
-    }
-
-    const fetch = require('node-fetch');
-    try {
-      const response = await fetch('https://slack.com/api/oauth.v2.access', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          code,
-          client_id: process.env.SLACK_CLIENT_ID,
-          client_secret: process.env.SLACK_CLIENT_SECRET,
-          redirect_uri: process.env.SLACK_REDIRECT_URI
-        })
-      });
-
-      const result = await response.json();
-      res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'text/html' });
-      res.end(`<h1>${result.ok ? 'Slack App installed!' : `OAuth Error: ${result.error}`}</h1>`);
-    } catch (err) {
-      console.error('OAuth error:', err);
-      res.writeHead(500);
-      res.end('Internal Server Error');
-    }
-    return;
-  }
-
   if (req.url === '/slack/events' && req.method === 'POST') {
     let body = '';
-    req.on('data', chunk => (body += chunk.toString()));
+    req.on('data', chunk => body += chunk.toString());
     req.on('end', async () => {
       try {
         const parsedBody = querystring.parse(body);
         const payload = parsedBody.payload ? JSON.parse(parsedBody.payload) : null;
 
-        // Slash command
         if (parsedBody.command === '/network') {
-          const searchTerm = parsedBody.text;
-          const userId = parsedBody.user_id;
-          const channelId = parsedBody.channel_id;
-
-          if (!searchTerm) {
+          const term = parsedBody.text;
+          if (!term) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-              text: 'Please provide a search term like `/network Google` or `/network staff: Jane Smith`.'
-            }));
+            res.end(JSON.stringify({ text: 'Please provide a search term like `/network Google` or `/network staff: Jane Smith`.' }));
             return;
           }
 
-          const connections = findConnections(searchTerm);
-          if (connections.length === 0) {
+          const matches = findConnections(term);
+          if (matches.length === 0) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-              text: `No matches found for "${searchTerm}".`,
-              response_type: 'ephemeral'
-            }));
+            res.end(JSON.stringify({ text: `No matches found for "${term}".` }));
             return;
           }
 
-          const blocks = connections.map(conn => ([
+          const blocks = matches.map(conn => ([
             {
               type: "section",
               text: {
@@ -190,17 +142,14 @@ const server = http.createServer(async (req, res) => {
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
-            text: `*Connections found matching "${searchTerm}":*`,
-            blocks,
-            response_type: "ephemeral"
+            text: `*Connections found matching "${term}":*`,
+            blocks
           }));
           return;
         }
 
-        // Block button click
         if (payload?.type === 'block_actions' && payload.actions?.[0]?.action_id === 'generate_email') {
           const value = JSON.parse(payload.actions[0].value);
-
           await slackClient.views.open({
             trigger_id: payload.trigger_id,
             view: {
@@ -216,10 +165,7 @@ const server = http.createServer(async (req, res) => {
                   type: "input",
                   block_id: "student_name",
                   label: { type: "plain_text", text: "Your Name" },
-                  element: {
-                    type: "plain_text_input",
-                    action_id: "name_input"
-                  }
+                  element: { type: "plain_text_input", action_id: "name_input" }
                 }
               ],
               private_metadata: JSON.stringify(value),
@@ -232,54 +178,42 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        // Modal submission
         if (payload?.type === 'view_submission' && payload.view?.callback_id === 'email_modal') {
-          const metadata = JSON.parse(payload.view.private_metadata);
-          const studentName = payload.view.state.values.student_name.name_input.value;
-          const emailText = generateEmail(metadata.staff, metadata.connection, metadata.company, studentName);
+          const meta = JSON.parse(payload.view.private_metadata);
+          const student = payload.view.state.values.student_name.name_input.value;
+          const message = generateEmail(meta.staff, meta.connection, meta.company, student);
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response_action: 'clear' }));
 
-          // Respond via chat to the user
-          await slackClient.chat.postMessage({
-            channel: payload.user.id,
-            text: "Here's your generated email template:",
-            blocks: [
-              {
-                type: "section",
-                text: { type: "mrkdwn", text: "*Here's your generated email template:*" }
-              },
-              {
-                type: "section",
-                text: { type: "mrkdwn", text: "```" + emailText + "```" }
-              },
-              {
-                type: "context",
-                elements: [
-                  {
-                    type: "mrkdwn",
-                    text: `*Reminder:* This message has not been sent. You can copy and paste it.`
-                  }
-                ]
-              }
-            ]
-          });
+          try {
+            await slackClient.chat.postMessage({
+              channel: payload.user.id,
+              text: "Here's your generated email template:",
+              blocks: [
+                { type: "section", text: { type: "mrkdwn", text: "*Here's your generated email template:*" } },
+                { type: "section", text: { type: "mrkdwn", text: "```" + message + "```" } },
+                { type: "context", elements: [ { type: "mrkdwn", text: `*Reminder:* This message is for your review. It has not been sent.` } ] }
+              ]
+            });
+          } catch (dmErr) {
+            console.error('❌ Failed to post DM:', dmErr);
+          }
 
           return;
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ text: "Unrecognized interaction." }));
+        res.end(JSON.stringify({ text: "Unknown or unsupported request." }));
       } catch (err) {
-        console.error("❌ Event error:", err);
-        res.writeHead(500);
-        res.end("Internal Server Error");
+        console.error('❌ Error:', err);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ text: "Something went wrong processing your request." }));
       }
     });
   } else {
     res.writeHead(404);
-    res.end('Not found');
+    res.end('Not Found');
   }
 });
 
@@ -290,7 +224,7 @@ const server = http.createServer(async (req, res) => {
     server.listen(port, () => {
       console.log(`🚀 Server running at http://localhost:${port}`);
     });
-  } catch (error) {
-    console.error("❌ Failed to start:", error);
+  } catch (e) {
+    console.error('❌ Failed to start:', e);
   }
 })();
