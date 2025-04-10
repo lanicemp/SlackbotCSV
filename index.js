@@ -5,7 +5,6 @@ const fs = require('fs');
 const csv = require('csv-parser');
 const querystring = require('querystring');
 const { WebClient } = require('@slack/web-api');
-
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 let networkData = [];
@@ -27,38 +26,44 @@ function loadNetworkData() {
   });
 }
 
+function normalizeText(text = '') {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 function findConnections(searchTerm) {
-  let searchCriteria = {};
+  const normalizedSearch = normalizeText(searchTerm);
 
-  if (searchTerm.includes(':')) {
-    const match = (label) =>
-      (searchTerm.match(new RegExp(`${label}:\s*([^,]+)`, 'i')) || [])[1]?.trim().toLowerCase();
+  if (searchTerm.includes(":")) {
+    const extract = (label) => {
+      const match = searchTerm.match(new RegExp(`${label}:\\s*([^,]+)`, 'i'));
+      return match ? normalizeText(match[1]) : null;
+    };
 
-    searchCriteria = {
-      company: match("company"),
-      title: match("title"),
-      staff: match("staff"),
-      industry: match("industry"),
+    const criteria = {
+      company: extract("company"),
+      title: extract("title"),
+      staff: extract("staff"),
+      industry: extract("industry"),
     };
 
     return networkData.filter((entry) => {
-      const company = entry['Current Organization']?.toLowerCase() || "";
-      const title = entry['💼 Current role']?.toLowerCase() || "";
-      const staff = entry['Best Pursuit Contact']?.toLowerCase() || "";
-      const inferred = `${company} ${title}`;
+      const company = normalizeText(entry['Current Organization']);
+      const title = normalizeText(entry['💼 Current role']);
+      const staff = normalizeText(entry['Best Pursuit Contact']);
+      const combined = `${company} ${title}`;
 
-      return (!searchCriteria.company || company.includes(searchCriteria.company)) &&
-             (!searchCriteria.title || title.includes(searchCriteria.title)) &&
-             (!searchCriteria.staff || staff.includes(searchCriteria.staff)) &&
-             (!searchCriteria.industry || inferred.includes(searchCriteria.industry));
+      return (!criteria.company || company.includes(criteria.company)) &&
+             (!criteria.title || title.includes(criteria.title)) &&
+             (!criteria.staff || staff.includes(criteria.staff)) &&
+             (!criteria.industry || combined.includes(criteria.industry));
     });
   }
 
-  const lowerTerm = searchTerm.toLowerCase();
-  return networkData.filter(entry =>
-    entry['Current Organization']?.toLowerCase().includes(lowerTerm) ||
-    entry['💼 Current role']?.toLowerCase().includes(lowerTerm)
-  );
+  return networkData.filter(entry => {
+    const org = normalizeText(entry['Current Organization']);
+    const role = normalizeText(entry['💼 Current role']);
+    return org.includes(normalizedSearch) || role.includes(normalizedSearch);
+  });
 }
 
 function generateEmail(staff, connection, company, student) {
@@ -81,8 +86,6 @@ ${student}`;
 }
 
 const server = http.createServer(async (req, res) => {
-  console.log(`➡️ ${req.method} ${req.url}`);
-
   if (req.url === '/' || req.url === '') {
     const preview = networkData.length > 0
       ? {
@@ -91,6 +94,7 @@ const server = http.createServer(async (req, res) => {
           columns: Object.keys(networkData[0] || {})
         }
       : 'No data loaded';
+
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end(`Network Activation Slackbot is running!\n\nDebug:\n${JSON.stringify(preview, null, 2)}`);
     return;
@@ -99,7 +103,6 @@ const server = http.createServer(async (req, res) => {
   if (req.url.startsWith('/slack/oauth_redirect') && req.method === 'GET') {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const code = url.searchParams.get('code');
-
     if (!code) {
       res.writeHead(400);
       res.end('Missing code');
@@ -118,6 +121,7 @@ const server = http.createServer(async (req, res) => {
           redirect_uri: process.env.SLACK_REDIRECT_URI
         })
       });
+
       const result = await response.json();
       res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'text/html' });
       res.end(`<h1>${result.ok ? 'Slack App installed!' : `OAuth Error: ${result.error}`}</h1>`);
@@ -131,15 +135,18 @@ const server = http.createServer(async (req, res) => {
 
   if (req.url === '/slack/events' && req.method === 'POST') {
     let body = '';
-    req.on('data', chunk => body += chunk.toString());
-
+    req.on('data', chunk => (body += chunk.toString()));
     req.on('end', async () => {
       try {
         const parsedBody = querystring.parse(body);
         const payload = parsedBody.payload ? JSON.parse(parsedBody.payload) : null;
 
+        // Slash command
         if (parsedBody.command === '/network') {
           const searchTerm = parsedBody.text;
+          const userId = parsedBody.user_id;
+          const channelId = parsedBody.channel_id;
+
           if (!searchTerm) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -153,7 +160,7 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               text: `No matches found for "${searchTerm}".`,
-              response_type: 'in_channel'
+              response_type: 'ephemeral'
             }));
             return;
           }
@@ -185,14 +192,16 @@ const server = http.createServer(async (req, res) => {
           res.end(JSON.stringify({
             text: `*Connections found matching "${searchTerm}":*`,
             blocks,
-            response_type: "in_channel"
+            response_type: "ephemeral"
           }));
           return;
         }
 
+        // Block button click
         if (payload?.type === 'block_actions' && payload.actions?.[0]?.action_id === 'generate_email') {
           const value = JSON.parse(payload.actions[0].value);
-          const modal = {
+
+          await slackClient.views.open({
             trigger_id: payload.trigger_id,
             view: {
               type: "modal",
@@ -216,11 +225,6 @@ const server = http.createServer(async (req, res) => {
               private_metadata: JSON.stringify(value),
               submit: { type: "plain_text", text: "Generate Email" }
             }
-          };
-
-          await slackClient.views.open({
-            trigger_id: payload.trigger_id,
-            view: modal.view
           });
 
           res.writeHead(200);
@@ -228,15 +232,16 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
+        // Modal submission
         if (payload?.type === 'view_submission' && payload.view?.callback_id === 'email_modal') {
           const metadata = JSON.parse(payload.view.private_metadata);
           const studentName = payload.view.state.values.student_name.name_input.value;
-
           const emailText = generateEmail(metadata.staff, metadata.connection, metadata.company, studentName);
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response_action: 'clear' }));
 
+          // Respond via chat to the user
           await slackClient.chat.postMessage({
             channel: payload.user.id,
             text: "Here's your generated email template:",
@@ -254,7 +259,7 @@ const server = http.createServer(async (req, res) => {
                 elements: [
                   {
                     type: "mrkdwn",
-                    text: `*Reminder:* This message is for your review. It has not been sent.`
+                    text: `*Reminder:* This message has not been sent. You can copy and paste it.`
                   }
                 ]
               }
@@ -265,12 +270,11 @@ const server = http.createServer(async (req, res) => {
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ text: "Unrecognized action." }));
-
+        res.end(JSON.stringify({ text: "Unrecognized interaction." }));
       } catch (err) {
-        console.error("❌ Error processing event:", err);
+        console.error("❌ Event error:", err);
         res.writeHead(500);
-        res.end('Internal Server Error');
+        res.end("Internal Server Error");
       }
     });
   } else {
@@ -282,17 +286,11 @@ const server = http.createServer(async (req, res) => {
 (async () => {
   try {
     await loadNetworkData();
-    console.log("ENV Loaded:", {
-      SLACK_BOT_TOKEN: !!process.env.SLACK_BOT_TOKEN,
-      SLACK_SIGNING_SECRET: !!process.env.SLACK_SIGNING_SECRET
-    });
-
     const port = process.env.PORT || 3001;
     server.listen(port, () => {
-      console.log(`🚀 Server running on http://localhost:${port}`);
-      console.log(`🔗 Slack endpoint: https://your-ngrok-url/slack/events`);
+      console.log(`🚀 Server running at http://localhost:${port}`);
     });
   } catch (error) {
-    console.error("❌ Server failed to start:", error);
+    console.error("❌ Failed to start:", error);
   }
 })();
