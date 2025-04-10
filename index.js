@@ -147,18 +147,25 @@ const server = http.createServer(async (req, res) => {
                   }
                 ])).flat()
               };
-        
+              console.log("✅ Matches found for:", term, matches.length);
+
           // 3. Send full result asynchronously to response_url
           const fetch = require('node-fetch');
+          console.log("📦 Sending payload to Slack:", JSON.stringify(payload, null, 2));
+
           try {
-            await fetch(responseUrl, {
+            const response = await fetch(responseUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
             });
+          
+            const data = await response.text();
+            console.log("✅ Response from Slack:", response.status, data);
           } catch (err) {
             console.error('❌ Error sending response_url:', err);
           }
+          
         
           return;
         }
