@@ -10,6 +10,7 @@ const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 let networkData = [];
 
+// Load CSV data
 function loadNetworkData() {
   return new Promise((resolve, reject) => {
     networkData = [];
@@ -27,12 +28,13 @@ function loadNetworkData() {
   });
 }
 
+// Connection search
 function findConnections(searchTerm) {
   let searchCriteria = {};
 
   if (searchTerm.includes(":")) {
     const match = (label) =>
-      (searchTerm.match(new RegExp(`${label}:\s*([^,]+)`, 'i')) || [])[1]?.trim().toLowerCase();
+      (searchTerm.match(new RegExp(`${label}:\\s*([^,]+)`, 'i')) || [])[1]?.trim().toLowerCase();
 
     searchCriteria = {
       company: match("company"),
@@ -61,6 +63,7 @@ function findConnections(searchTerm) {
   );
 }
 
+// Email template generator
 function generateEmail(staff, connection, company, student) {
   return `Subject: Request for Introduction to ${connection} at ${company}
 
@@ -80,6 +83,7 @@ Best regards,
 ${student}`;
 }
 
+// Create HTTP server
 const server = http.createServer(async (req, res) => {
   console.log(`➡️ ${req.method} ${req.url}`);
 
@@ -233,33 +237,39 @@ const server = http.createServer(async (req, res) => {
           const studentName = payload.view.state.values.student_name.name_input.value;
           const emailText = generateEmail(metadata.staff, metadata.connection, metadata.company, studentName);
 
-          const im = await slackClient.conversations.open({ users: payload.user.id });
-          await slackClient.chat.postMessage({
-            channel: im.channel.id,
-            text: "Here's your generated email template:",
-            blocks: [
-              {
-                type: "section",
-                text: { type: "mrkdwn", text: "*Here's your generated email template:*" }
-              },
-              {
-                type: "section",
-                text: { type: "mrkdwn", text: "```" + emailText + "```" }
-              },
-              {
-                type: "context",
-                elements: [
-                  {
-                    type: "mrkdwn",
-                    text: `*Reminder:* This message is for your review. It has not been sent.`
-                  }
-                ]
-              }
-            ]
-          });
-
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response_action: 'clear' }));
+
+          setTimeout(async () => {
+            try {
+              const im = await slackClient.conversations.open({ users: payload.user.id });
+              await slackClient.chat.postMessage({
+                channel: im.channel.id,
+                text: "Here's your generated email template:",
+                blocks: [
+                  {
+                    type: "section",
+                    text: { type: "mrkdwn", text: "*Here's your generated email template:*" }
+                  },
+                  {
+                    type: "section",
+                    text: { type: "mrkdwn", text: "```" + emailText + "```" }
+                  },
+                  {
+                    type: "context",
+                    elements: [
+                      {
+                        type: "mrkdwn",
+                        text: `*Reminder:* This message is for your review. It has not been sent.`
+                      }
+                    ]
+                  }
+                ]
+              });
+            } catch (err) {
+              console.error("Failed to send DM:", err);
+            }
+          }, 0);
           return;
         }
 
@@ -278,6 +288,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Start server
 (async () => {
   try {
     await loadNetworkData();
