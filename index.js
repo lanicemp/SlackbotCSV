@@ -34,7 +34,7 @@ function findConnections(searchTerm) {
 
   if (searchTerm.includes(":")) {
     const match = (label) =>
-      (searchTerm.match(new RegExp(`${label}:\\s*([^,]+)`, 'i')) || [])[1]?.trim().toLowerCase();
+      (searchTerm.match(new RegExp(`${label}:\s*([^,]+)`, 'i')) || [])[1]?.trim().toLowerCase();
 
     searchCriteria = {
       company: match("company"),
@@ -142,6 +142,7 @@ const server = http.createServer(async (req, res) => {
         const parsedBody = querystring.parse(body);
         const payload = parsedBody.payload ? JSON.parse(parsedBody.payload) : null;
 
+        // Slash command
         if (parsedBody.command === '/network') {
           const searchTerm = parsedBody.text;
           if (!searchTerm) {
@@ -194,6 +195,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
+        // Interactive payload - generate_email
         if (payload?.type === 'block_actions' && payload.actions?.[0]?.action_id === 'generate_email') {
           const value = JSON.parse(payload.actions[0].value);
           const modal = {
@@ -232,47 +234,46 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
+        // Modal submission
         if (payload?.type === 'view_submission' && payload.view?.callback_id === 'email_modal') {
           const metadata = JSON.parse(payload.view.private_metadata);
           const studentName = payload.view.state.values.student_name.name_input.value;
+
           const emailText = generateEmail(metadata.staff, metadata.connection, metadata.company, studentName);
 
+          // Acknowledge modal
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response_action: 'clear' }));
 
-          setTimeout(async () => {
-            try {
-              const im = await slackClient.conversations.open({ users: payload.user.id });
-              await slackClient.chat.postMessage({
-                channel: im.channel.id,
-                text: "Here's your generated email template:",
-                blocks: [
+          // Reply in the same channel where the slash command was used (DM)
+          await slackClient.chat.postMessage({
+            channel: payload.channel.id,
+            text: "Here's your generated email template:",
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "*Here's your generated email template:*" }
+              },
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "```" + emailText + "```" }
+              },
+              {
+                type: "context",
+                elements: [
                   {
-                    type: "section",
-                    text: { type: "mrkdwn", text: "*Here's your generated email template:*" }
-                  },
-                  {
-                    type: "section",
-                    text: { type: "mrkdwn", text: "```" + emailText + "```" }
-                  },
-                  {
-                    type: "context",
-                    elements: [
-                      {
-                        type: "mrkdwn",
-                        text: `*Reminder:* This message is for your review. It has not been sent.`
-                      }
-                    ]
+                    type: "mrkdwn",
+                    text: `*Reminder:* This message is for your review. It has not been sent.`
                   }
                 ]
-              });
-            } catch (err) {
-              console.error("Failed to send DM:", err);
-            }
-          }, 0);
+              }
+            ]
+          });
+
           return;
         }
 
+        // Unknown payload
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ text: "Unrecognized action." }));
 
