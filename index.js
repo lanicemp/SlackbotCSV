@@ -61,82 +61,6 @@ function findConnections(searchTerm) {
            normalizeText(entry['💼 Current role'] || '').includes(normalizedTerm);
   });
 }
-const PAGE_SIZE = 5;
-function paginateResults(matches, offset = 0, term = ''){
-  const page = matches.slice(offset, offset + PAGE_SIZE);
-  const hasNext = offset + PAGE_SIZE < matches.length;
-  const hasPrev = offset > 0;
-
-  const blocks = page.map(conn => ([
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*<${conn.LinkedIn}|${conn.Name}>* (${conn['💼 Current role']}) at *${conn['Current Organization']}*\nContact: ${conn['Best Pursuit Contact']}`
-      }
-    },
-    {
-      type: "actions",
-      elements: [{
-        type: "button",
-        text: { type: "plain_text", text: "Request Intro Email" },
-        action_id: "generate_email",
-        value: JSON.stringify({
-          staff: conn['Best Pursuit Contact'],
-          connection: conn.Name,
-          company: conn['Current Organization']
-        })
-      }]
-    }
-  ])).flat();
-
-  const navButtons = [];
-  if (hasPrev) {
-    navButtons.push({
-      type: "button",
-      text: { type: "plain_text", text: "Previous" },
-      action_id: "prev_page",
-      value: JSON.stringify({ offset: offset - PAGE_SIZE, term })
-    });
-  }
-  if (hasNext) {
-    navButtons.push({
-      type: "button",
-      text: { type: "plain_text", text: "Next" },
-      action_id: "next_page",
-      value: JSON.stringify({ offset: offset + PAGE_SIZE, term })
-    });
-  }
-
-  if (navButtons.length > 0) {
-    blocks.push({
-      type: "actions",
-      elements: navButtons
-    });
-  }
-
-  return blocks;
-}
-
-
-function generateEmail(staff, connection, company, student) {
-  return `Subject: Request for Introduction to ${connection} at ${company}
-
-Hi ${staff},
-
-I hope this email finds you well. My name is ${student}, and I'm a current student at Pursuit.
-
-I noticed that you're connected with ${connection} at ${company} on LinkedIn. I'm very interested in exploring opportunities there, and I was wondering if you might be willing to introduce me to them.
-
-I've been focusing on [briefly mention your relevant skills/projects], and I believe that ${company}'s work in [mention something specific about the company] aligns well with my career goals.
-
-If you're open to making this introduction, I'd be happy to provide you with more information about my background and interests that you could include in your email.
-
-Thank you for considering my request, and I look forward to hearing from you.
-
-Best regards,
-${student}`;
-}
 
 const server = http.createServer(async (req, res) => {
   if (req.url === '/' || req.url === '') {
@@ -157,144 +81,42 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const parsedBody = querystring.parse(body);
-        const payload = parsedBody.payload ? JSON.parse(parsedBody.payload) : null;
 
         if (parsedBody.command === '/network') {
           const term = parsedBody.text;
           const responseUrl = parsedBody.response_url;
-        
-          // 1. Immediate response to Slack (within 3 seconds)
+
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             response_type: 'ephemeral',
-            text: `🔍 Searching for matches for: "${term}"...`
+            text: `🔍 Searching for: "${term}"...`
           }));
-        
-          // 2. Continue async processing after response
+
           const matches = findConnections(term);
-        
-          const payload = matches.length === 0
-            ? {
-                response_type: 'ephemeral',
-                text: `❌ No matches found for "${term}". Try another search.`
-              }
-            : {
-                response_type: 'ephemeral',
-                text: `✅ Found ${matches.length} match(es) for "${term}":`,
-                blocks: paginateResults(matches, 0, term)
 
-              };
-              console.log("✅ Matches found for:", term, matches.length);
+          const formattedText = matches.length === 0
+            ? `❌ No matches found for "${term}".`
+            : `*Connections found matching "${term}":*\n\n` +
+              matches.map(conn => `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${conn['Current Organization']} - Contact: ${conn['Best Pursuit Contact']}`).join('\n');
 
-          // 3. Send full result asynchronously to response_url
           const fetch = require('node-fetch');
-          console.log("📦 Sending payload to Slack:", JSON.stringify(payload, null, 2));
-
-          try {
-            const response = await fetch(responseUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-          
-            const data = await response.text();
-            console.log("✅ Response from Slack:", response.status, data);
-          } catch (err) {
-            console.error('❌ Error sending response_url:', err);
-          }
-          
-        
-          return;
-        }
-        
-
-        if (payload?.type === 'block_actions' && payload.actions?.[0]?.action_id === 'generate_email') {
-          
-          const value = JSON.parse(payload.actions[0].value);
-          await slackClient.views.open({
-            trigger_id: payload.trigger_id,
-            view: {
-              type: "modal",
-              callback_id: "email_modal",
-              title: { type: "plain_text", text: "Generate Email" },
-              blocks: [
-                {
-                  type: "section",
-                  text: { type: "mrkdwn", text: `You're requesting an intro to *${value.connection}* at *${value.company}* via *${value.staff}*.` }
-                },
-                {
-                  type: "input",
-                  block_id: "student_name",
-                  label: { type: "plain_text", text: "Your Name" },
-                  element: { type: "plain_text_input", action_id: "name_input" }
-                }
-              ],
-              private_metadata: JSON.stringify(value),
-              submit: { type: "plain_text", text: "Generate Email" }
-            }
+          await fetch(responseUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              response_type: 'ephemeral',
+              text: formattedText
+            })
           });
-
-          res.writeHead(200);
-          res.end();
-          return;
-        }
-        else if (['next_page', 'prev_page'].includes(payload.actions[0].action_id)) {
-          const action = payload.actions[0];
-          const { offset, term } = JSON.parse(action.value);
-        
-          const matches = findConnections(term);
-          const blocks = paginateResults(matches, offset, term);
-        
-          // Update the message (respond via response_url)
-          const fetch = require('node-fetch');
-          try {
-            await slackClient.chat.update({
-              channel: payload.channel.id,
-              ts: payload.message.ts,
-              text: `✅ Found ${matches.length} match(es) for "${term}":`,
-              blocks
-            });
-            
-          } catch (err) {
-            console.error('❌ Pagination error:', err);
-          }
-        
-          res.writeHead(200);
-          res.end();
-          return;
-        }
-        
-
-        if (payload?.type === 'view_submission' && payload.view?.callback_id === 'email_modal') {
-          const meta = JSON.parse(payload.view.private_metadata);
-          const student = payload.view.state.values.student_name.name_input.value;
-          const message = generateEmail(meta.staff, meta.connection, meta.company, student);
-
-          try {
-            await slackClient.chat.postMessage({
-              channel: payload.user.id,
-              text: "Here's your generated email template:",
-              blocks: [
-                { type: "section", text: { type: "mrkdwn", text: "*Here's your generated email template:*" } },
-                { type: "section", text: { type: "mrkdwn", text: "```" + message + "```" } },
-                { type: "context", elements: [ { type: "mrkdwn", text: `*Reminder:* This message is for your review. It has not been sent.` } ] }
-              ]
-            });
-          } catch (dmErr) {
-            console.error('❌ Failed to post DM:', dmErr);
-          }
-
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ response_action: 'clear' }));
           return;
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ text: "Unknown or unsupported request." }));
+        res.end(JSON.stringify({ text: 'Unknown request.' }));
       } catch (err) {
         console.error('❌ Error:', err);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ text: "Something went wrong processing your request." }));
+        res.end(JSON.stringify({ text: 'Something went wrong.' }));
       }
     });
   } else {
