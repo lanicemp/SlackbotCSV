@@ -4,130 +4,72 @@ const http = require('http');
 const fs = require('fs');
 const csv = require('csv-parser');
 const querystring = require('querystring');
-
-// Store for our network data
-let networkData = [];
-
 const { WebClient } = require('@slack/web-api');
+
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 
+let networkData = [];
 
-// Load network data from CSV
+// Load CSV data
 function loadNetworkData() {
-  networkData = [];
   return new Promise((resolve, reject) => {
+    networkData = [];
     fs.createReadStream('network_connections.csv')
-    .pipe(csv())
-      .on('data', (row) => {
-        networkData.push(row);
-      })
+      .pipe(csv())
+      .on('data', (row) => networkData.push(row))
       .on('end', () => {
-        console.log('Network data loaded successfully');
-        console.log('First few rows:', networkData.slice(0, 3));
-        console.log('Column names:', Object.keys(networkData[0] || {}));
-        console.log('Total records loaded:', networkData.length);
+        console.log('✅ Network data loaded.');
         resolve(networkData);
       })
       .on('error', (error) => {
-        console.error('Error loading network data:', error);
+        console.error('❌ Error loading CSV:', error);
         reject(error);
       });
   });
 }
 
-// Find connections based on multiple criteria
+// Connection search
 function findConnections(searchTerm) {
-  // Parse search criteria from the search term
   let searchCriteria = {};
-  
-  // Check for formatted search with multiple criteria
+
   if (searchTerm.includes(":")) {
-    // Look for company: pattern
-    const companyMatch = searchTerm.match(/company:\s*([^,]+)/i);
-    if (companyMatch) {
-      searchCriteria.company = companyMatch[1].trim().toLowerCase();
-    }
-    
-    // Look for title: pattern
-    const titleMatch = searchTerm.match(/title:\s*([^,]+)/i);
-    if (titleMatch) {
-      searchCriteria.title = titleMatch[1].trim().toLowerCase();
-    }
-    
-    // Look for staff: pattern
-    const staffMatch = searchTerm.match(/staff:\s*([^,]+)/i);
-    if (staffMatch) {
-      searchCriteria.staff = staffMatch[1].trim().toLowerCase();
-    }
-    
-    // Look for industry: pattern
-    const industryMatch = searchTerm.match(/industry:\s*([^,]+)/i);
-    if (industryMatch) {
-      searchCriteria.industry = industryMatch[1].trim().toLowerCase();
-    }
-    
-    // Filter based on all provided criteria
-    return networkData.filter(entry => {
-      let matches = true;
-      
-      if (searchCriteria.company) {
-        matches = matches && entry['Current Organization'] && 
-                  entry['Current Organization'].toLowerCase().includes(searchCriteria.company);
-      }
-      
-      if (searchCriteria.title) {
-        matches = matches && entry['💼 Current role'] && 
-                  entry['💼 Current role'].toLowerCase().includes(searchCriteria.title);
-      }
-      
-      if (searchCriteria.staff) {
-        matches = matches && entry['Best Pursuit Contact'] && 
-                  entry['Best Pursuit Contact'].toLowerCase().includes(searchCriteria.staff);
-      }
-      
-      if (searchCriteria.industry) {
-        // Since we don't have a dedicated industry field, infer from company and role
-        const companyAndRole = (entry['Current Organization'] || '') + ' ' + (entry['💼 Current role'] || '');
-        matches = matches && companyAndRole.toLowerCase().includes(searchCriteria.industry);
-      }
-      
-      return matches;
+    const match = (label) =>
+      (searchTerm.match(new RegExp(`${label}:\\s*([^,]+)`, 'i')) || [])[1]?.trim().toLowerCase();
+
+    searchCriteria = {
+      company: match("company"),
+      title: match("title"),
+      staff: match("staff"),
+      industry: match("industry"),
+    };
+
+    return networkData.filter((entry) => {
+      const company = entry['Current Organization']?.toLowerCase() || "";
+      const title = entry['💼 Current role']?.toLowerCase() || "";
+      const staff = entry['Best Pursuit Contact']?.toLowerCase() || "";
+      const inferred = `${company} ${title}`;
+
+      return (!searchCriteria.company || company.includes(searchCriteria.company)) &&
+             (!searchCriteria.title || title.includes(searchCriteria.title)) &&
+             (!searchCriteria.staff || staff.includes(searchCriteria.staff)) &&
+             (!searchCriteria.industry || inferred.includes(searchCriteria.industry));
     });
   }
-  
-  // Check if it's a staff-only search
-  if (searchTerm.toLowerCase().startsWith("staff:")) {
-    const staffName = searchTerm.substring(6).trim().toLowerCase();
-    return networkData.filter(entry => 
-      entry['Best Pursuit Contact'] && entry['Best Pursuit Contact'].toLowerCase().includes(staffName)
-    );
-  }
-  
-  // Check if it's an industry-only search
-  if (searchTerm.toLowerCase().startsWith("industry:")) {
-    const industry = searchTerm.substring(9).trim().toLowerCase();
-    return networkData.filter(entry => {
-      // Since we don't have a dedicated industry field, infer from company and role
-      const companyAndRole = (entry['Current Organization'] || '') + ' ' + (entry['💼 Current role'] || '');
-      return companyAndRole.toLowerCase().includes(industry);
-    });
-  }
-  
-  // Regular single term search (as before)
-  const searchTermLower = searchTerm.toLowerCase();
-  return networkData.filter(entry => 
-    (entry['Current Organization'] && entry['Current Organization'].toLowerCase().includes(searchTermLower)) ||
-    (entry['💼 Current role'] && entry['💼 Current role'].toLowerCase().includes(searchTermLower))
+
+  const lowerTerm = searchTerm.toLowerCase();
+  return networkData.filter(entry =>
+    entry['Current Organization']?.toLowerCase().includes(lowerTerm) ||
+    entry['💼 Current role']?.toLowerCase().includes(lowerTerm)
   );
 }
 
-// Generate an email template for introduction request
-function generateEmail(staffMember, connection, company, studentName) {
+// Email template generator
+function generateEmail(staff, connection, company, student) {
   return `Subject: Request for Introduction to ${connection} at ${company}
 
-Hi ${staffMember},
+Hi ${staff},
 
-I hope this email finds you well. My name is ${studentName}, and I'm a current student at Pursuit.
+I hope this email finds you well. My name is ${student}, and I'm a current student at Pursuit.
 
 I noticed that you're connected with ${connection} at ${company} on LinkedIn. I'm very interested in exploring opportunities there, and I was wondering if you might be willing to introduce me to them.
 
@@ -138,40 +80,37 @@ If you're open to making this introduction, I'd be happy to provide you with mor
 Thank you for considering my request, and I look forward to hearing from you.
 
 Best regards,
-${studentName}`;
+${student}`;
 }
 
-// Create an HTTP server
+// Create HTTP server
 const server = http.createServer(async (req, res) => {
-  console.log(`Received ${req.method} request to ${req.url}`);
+  console.log(`➡️ ${req.method} ${req.url}`);
 
-  // Handle requests to the root URL
   if (req.url === '/' || req.url === '') {
-    // Send debug info about the loaded data
-    const dataPreview = networkData.length > 0 
+    const preview = networkData.length > 0
       ? {
           totalRecords: networkData.length,
           firstFewRecords: networkData.slice(0, 3),
           columns: Object.keys(networkData[0] || {})
         }
       : 'No data loaded';
-      
-    res.writeHead(200, {'Content-Type': 'text/plain'});
-    res.end(`Network Activation Slackbot is running!\n\nDebug data:\n${JSON.stringify(dataPreview, null, 2)}`);
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end(`Network Activation Slackbot is running!\n\nDebug:\n${JSON.stringify(preview, null, 2)}`);
     return;
   }
+
   if (req.url.startsWith('/slack/oauth_redirect') && req.method === 'GET') {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const code = url.searchParams.get('code');
-  
+
     if (!code) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.writeHead(400);
       res.end('Missing code');
       return;
     }
-  
+
     const fetch = require('node-fetch');
-  
     try {
       const response = await fetch('https://slack.com/api/oauth.v2.access', {
         method: 'POST',
@@ -183,67 +122,47 @@ const server = http.createServer(async (req, res) => {
           redirect_uri: process.env.SLACK_REDIRECT_URI
         })
       });
-  
       const result = await response.json();
-      console.log('OAuth response:', result);
-  
-      if (result.ok) {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<h1>Slack App installed successfully!</h1>');
-      } else {
-        res.writeHead(500, { 'Content-Type': 'text/html' });
-        res.end(`<h1>OAuth Error: ${result.error}</h1>`);
-      }
+      res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'text/html' });
+      res.end(`<h1>${result.ok ? 'Slack App installed!' : `OAuth Error: ${result.error}`}</h1>`);
     } catch (err) {
-      console.error('OAuth Error:', err);
-      res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end('Internal server error');
+      console.error('OAuth error:', err);
+      res.writeHead(500);
+      res.end('Internal Server Error');
     }
-  
     return;
   }
-  
-  // Handle Slack slash command
+
   if (req.url === '/slack/events' && req.method === 'POST') {
-    console.log('✅ Slack POST request received at /slack/events');
     let body = '';
-    
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    
+    req.on('data', chunk => body += chunk.toString());
+
     req.on('end', async () => {
-      console.log('Received Slack event');
-      
       try {
         const parsedBody = querystring.parse(body);
-        console.log('Parsed request:', parsedBody);
-        
-        // Check if this is a slash command
+        const payload = parsedBody.payload ? JSON.parse(parsedBody.payload) : null;
+
+        // Slash command
         if (parsedBody.command === '/network') {
           const searchTerm = parsedBody.text;
-          
           if (!searchTerm) {
-            res.writeHead(200, {'Content-Type': 'application/json'});
+            res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
-              text: 'Please provide a search term. You can search by:\n• Company name: `/network Google`\n• Job title: `/network Software Engineer`\n• Staff member: `/network staff: Jane Smith`\n• Industry: `/network industry: Finance`\n• Multiple filters: `/network company: Google, title: Engineer, staff: Jane, industry: Tech`'
+              text: 'Please provide a search term like `/network Google` or `/network staff: Jane Smith`.'
             }));
             return;
           }
-          
+
           const connections = findConnections(searchTerm);
-          
-          // For testing, simplify the response
           if (connections.length === 0) {
-            res.writeHead(200, {'Content-Type': 'application/json'});
+            res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
-              text: `No connections found matching "${searchTerm}". Please try another search term.`,
-              response_type: "in_channel"
+              text: `No matches found for "${searchTerm}".`,
+              response_type: 'in_channel'
             }));
             return;
           }
-          
-          // Simple text response for now
+
           const blocks = connections.map(conn => ([
             {
               type: "section",
@@ -254,175 +173,137 @@ const server = http.createServer(async (req, res) => {
             },
             {
               type: "actions",
-              elements: [
-                {
-                  type: "button",
-                  text: {
-                    type: "plain_text",
-                    text: "Request Intro Email"
-                  },
-                  action_id: "generate_email",
-                  value: JSON.stringify({
-                    staff: conn['Best Pursuit Contact'],
-                    connection: conn.Name,
-                    company: conn['Current Organization']
-                  })
-                }
-              ]
+              elements: [{
+                type: "button",
+                text: { type: "plain_text", text: "Request Intro Email" },
+                action_id: "generate_email",
+                value: JSON.stringify({
+                  staff: conn['Best Pursuit Contact'],
+                  connection: conn.Name,
+                  company: conn['Current Organization']
+                })
+              }]
             }
           ])).flat();
-                   
-          res.writeHead(200, {'Content-Type': 'application/json'});
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             text: `*Connections found matching "${searchTerm}":*`,
             blocks,
             response_type: "in_channel"
           }));
+          return;
         }
-        // Check if this is an interactive action (button click)
-        else if (parsedBody.payload) {
-          const payload = JSON.parse(parsedBody.payload);
-        
-          if (payload.type === 'block_actions' && payload.actions?.[0].action_id === 'generate_email') {
-            const value = JSON.parse(payload.actions[0].value);
-            const modal = {
-              trigger_id: payload.trigger_id,
-              view: {
-                type: "modal",
-                callback_id: "email_modal",
-                title: {
-                  type: "plain_text",
-                  text: "Generate Email"
-                },
-                blocks: [
-                  {
-                    type: "section",
-                    text: {
-                      type: "mrkdwn",
-                      text: `You're requesting an introduction to *${value.connection}* at *${value.company}* via *${value.staff}*.`
-                    }
-                  },
-                  {
-                    type: "input",
-                    block_id: "student_name",
-                    label: {
-                      type: "plain_text",
-                      text: "Your Name"
-                    },
-                    element: {
-                      type: "plain_text_input",
-                      action_id: "name_input"
-                    }
-                  }
-                ],
-                private_metadata: JSON.stringify(value),
-                submit: {
-                  type: "plain_text",
-                  text: "Generate Email"
-                }
-              }
-            };
-        
-            try {
-              await slackClient.views.open({
-                trigger_id: payload.trigger_id,
-                view: modal.view
-              });
-              res.writeHead(200);
-              res.end();
-            } catch (err) {
-              console.error("Failed to open modal:", err);
-              res.writeHead(500);
-              res.end();
-            }
-            return;
-          }
-        
-          // ✅ Move this OUTSIDE the above if block
-          if (payload.type === 'view_submission' && payload.view.callback_id === 'email_modal') {
-            const metadata = JSON.parse(payload.view.private_metadata);
-            const studentName = payload.view.state.values.student_name.name_input.value;
-        
-            const emailText = generateEmail(
-              metadata.staff,
-              metadata.connection,
-              metadata.company,
-              studentName
-            );
-        
-            const message = {
-              channel: payload.user.id,
-              text: "Here's your generated email template:",
+
+        // Interactive payload - generate_email
+        if (payload?.type === 'block_actions' && payload.actions?.[0]?.action_id === 'generate_email') {
+          const value = JSON.parse(payload.actions[0].value);
+          const modal = {
+            trigger_id: payload.trigger_id,
+            view: {
+              type: "modal",
+              callback_id: "email_modal",
+              title: { type: "plain_text", text: "Generate Email" },
               blocks: [
                 {
                   type: "section",
-                  text: {
-                    type: "mrkdwn",
-                    text: "Here's your generated email template:"
-                  }
+                  text: { type: "mrkdwn", text: `You're requesting an intro to *${value.connection}* at *${value.company}* via *${value.staff}*.` }
                 },
                 {
-                  type: "section",
-                  text: {
-                    type: "mrkdwn",
-                    text: "```\n" + emailText + "\n```"
-                  }
-                },
-                {
-                  type: "section",
-                  text: {
-                    type: "mrkdwn",
-                    text: `Please email this to: ${metadata.staff}`
+                  type: "input",
+                  block_id: "student_name",
+                  label: { type: "plain_text", text: "Your Name" },
+                  element: {
+                    type: "plain_text_input",
+                    action_id: "name_input"
                   }
                 }
-              ]
-            };
-        
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(message));
-            return;
-          }
-        
-          // fallback for unknown payload
+              ],
+              private_metadata: JSON.stringify(value),
+              submit: { type: "plain_text", text: "Generate Email" }
+            }
+          };
+
+          await slackClient.views.open({
+            trigger_id: payload.trigger_id,
+            view: modal.view
+          });
+
+          res.writeHead(200);
+          res.end();
+          return;
+        }
+
+        // Modal submission
+        if (payload?.type === 'view_submission' && payload.view?.callback_id === 'email_modal') {
+          const metadata = JSON.parse(payload.view.private_metadata);
+          const studentName = payload.view.state.values.student_name.name_input.value;
+
+          const emailText = generateEmail(metadata.staff, metadata.connection, metadata.company, studentName);
+
+          // Acknowledge modal
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            text: "Unrecognized action"
-          }));
+          res.end(JSON.stringify({ response_action: 'clear' }));
+
+          // DM the user
+          await slackClient.chat.postMessage({
+            channel: payload.user.id,
+            text: "Here's your generated email template:",
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "*Here's your generated email template:*" }
+              },
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "```" + emailText + "```" }
+              },
+              {
+                type: "context",
+                elements: [
+                  {
+                    type: "mrkdwn",
+                    text: `*Reminder:* This message is for your review. It has not been sent.`
+                  }
+                ]
+              }
+            ]
+          });
+
+          return;
         }
-                
-        else {
-          res.writeHead(200, {'Content-Type': 'application/json'});
-          res.end(JSON.stringify({
-            text: "I received your request, but I'm not sure what to do with it."
-          }));
-        }
-      } catch (error) {
-        console.error('Error processing request:', error);
-        res.writeHead(200, {'Content-Type': 'application/json'});
-        res.end(JSON.stringify({
-          text: "Sorry, there was an error processing your request."
-        }));
+
+        // Unknown payload
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ text: "Unrecognized action." }));
+
+      } catch (err) {
+        console.error("❌ Error processing event:", err);
+        res.writeHead(500);
+        res.end('Internal Server Error');
       }
     });
   } else {
-    res.writeHead(404, {'Content-Type': 'text/plain'});
+    res.writeHead(404);
     res.end('Not found');
   }
 });
 
-// Start the server after loading network data
+// Start server
 (async () => {
   try {
     await loadNetworkData();
-    console.log("ENV Loaded:");
-    console.log("SLACK_BOT_TOKEN:", !!process.env.SLACK_BOT_TOKEN); // should be true
-    console.log("SLACK_SIGNING_SECRET:", !!process.env.SLACK_SIGNING_SECRET);
+    console.log("ENV Loaded:", {
+      SLACK_BOT_TOKEN: !!process.env.SLACK_BOT_TOKEN,
+      SLACK_SIGNING_SECRET: !!process.env.SLACK_SIGNING_SECRET
+    });
 
-    server.listen(process.env.PORT || 3001, () => {
-      console.log(`Network Activation Slackbot is running on http://localhost:${process.env.PORT || 3001}`);
-      console.log('For Slack, use: https://your-ngrok-url/slack/events');
+    const port = process.env.PORT || 3001;
+    server.listen(port, () => {
+      console.log(`🚀 Server running on http://localhost:${port}`);
+      console.log(`🔗 Slack endpoint: https://your-ngrok-url/slack/events`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error("❌ Server failed to start:", error);
   }
 })();
