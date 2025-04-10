@@ -113,9 +113,13 @@ const server = http.createServer(async (req, res) => {
           const matches = findConnections(term);
           if (matches.length === 0) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ text: `No matches found for "${term}".` }));
+            res.end(JSON.stringify({
+              response_type: 'ephemeral',
+              text: `No matches found for "${term}". Try a different company, title, or contact.`
+            }));
             return;
           }
+          
 
           const blocks = matches.map(conn => ([
             {
