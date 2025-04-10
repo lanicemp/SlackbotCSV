@@ -104,53 +104,65 @@ const server = http.createServer(async (req, res) => {
 
         if (parsedBody.command === '/network') {
           const term = parsedBody.text;
-          if (!term) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ text: 'Please provide a search term like `/network Google` or `/network staff: Jane Smith`.' }));
-            return;
-          }
-
-          const matches = findConnections(term);
-          if (matches.length === 0) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-              response_type: 'ephemeral',
-              text: `No matches found for "${term}". Try a different company, title, or contact.`
-            }));
-            return;
-          }
-          
-
-          const blocks = matches.map(conn => ([
-            {
-              type: "section",
-              text: {
-                type: "mrkdwn",
-                text: `*<${conn.LinkedIn}|${conn.Name}>* (${conn['💼 Current role']}) at *${conn['Current Organization']}*\nContact: ${conn['Best Pursuit Contact']}`
-              }
-            },
-            {
-              type: "actions",
-              elements: [{
-                type: "button",
-                text: { type: "plain_text", text: "Request Intro Email" },
-                action_id: "generate_email",
-                value: JSON.stringify({
-                  staff: conn['Best Pursuit Contact'],
-                  connection: conn.Name,
-                  company: conn['Current Organization']
-                })
-              }]
-            }
-          ])).flat();
-
+          const responseUrl = parsedBody.response_url;
+        
+          // 1. Immediate response to Slack (within 3 seconds)
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
-            text: `*Connections found matching "${term}":*`,
-            blocks
+            response_type: 'ephemeral',
+            text: `🔍 Searching for matches for: "${term}"...`
           }));
+        
+          // 2. Continue async processing after response
+          const matches = findConnections(term);
+        
+          const payload = matches.length === 0
+            ? {
+                response_type: 'ephemeral',
+                text: `❌ No matches found for "${term}". Try another search.`
+              }
+            : {
+                response_type: 'ephemeral',
+                text: `✅ Found ${matches.length} match(es) for "${term}":`,
+                blocks: matches.map(conn => ([
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: `*<${conn.LinkedIn}|${conn.Name}>* (${conn['💼 Current role']}) at *${conn['Current Organization']}*\nContact: ${conn['Best Pursuit Contact']}`
+                    }
+                  },
+                  {
+                    type: "actions",
+                    elements: [{
+                      type: "button",
+                      text: { type: "plain_text", text: "Request Intro Email" },
+                      action_id: "generate_email",
+                      value: JSON.stringify({
+                        staff: conn['Best Pursuit Contact'],
+                        connection: conn.Name,
+                        company: conn['Current Organization']
+                      })
+                    }]
+                  }
+                ])).flat()
+              };
+        
+          // 3. Send full result asynchronously to response_url
+          const fetch = require('node-fetch');
+          try {
+            await fetch(responseUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+          } catch (err) {
+            console.error('❌ Error sending response_url:', err);
+          }
+        
           return;
         }
+        
 
         if (payload?.type === 'block_actions' && payload.actions?.[0]?.action_id === 'generate_email') {
           const value = JSON.parse(payload.actions[0].value);
