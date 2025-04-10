@@ -282,10 +282,9 @@ const server = http.createServer(async (req, res) => {
         // Check if this is an interactive action (button click)
         else if (parsedBody.payload) {
           const payload = JSON.parse(parsedBody.payload);
-          
+        
           if (payload.type === 'block_actions' && payload.actions?.[0].action_id === 'generate_email') {
             const value = JSON.parse(payload.actions[0].value);
-          
             const modal = {
               trigger_id: payload.trigger_id,
               view: {
@@ -323,8 +322,7 @@ const server = http.createServer(async (req, res) => {
                 }
               }
             };
-          
-            // ✅ Call Slack API instead of responding directly
+        
             try {
               await slackClient.views.open({
                 trigger_id: payload.trigger_id,
@@ -332,7 +330,6 @@ const server = http.createServer(async (req, res) => {
               });
               res.writeHead(200);
               res.end();
-              
             } catch (err) {
               console.error("Failed to open modal:", err);
               res.writeHead(500);
@@ -340,22 +337,19 @@ const server = http.createServer(async (req, res) => {
             }
             return;
           }
-          }
-          // Handle modal submission
-          else if (payload.type === 'view_submission' && 
-                   payload.view.callback_id === 'email_modal') {
-            
+        
+          // ✅ Move this OUTSIDE the above if block
+          if (payload.type === 'view_submission' && payload.view.callback_id === 'email_modal') {
             const metadata = JSON.parse(payload.view.private_metadata);
             const studentName = payload.view.state.values.student_name.name_input.value;
-            
+        
             const emailText = generateEmail(
               metadata.staff,
               metadata.connection,
               metadata.company,
               studentName
             );
-            
-            // Send message with the email template
+        
             const message = {
               channel: payload.user.id,
               text: "Here's your generated email template:",
@@ -383,18 +377,19 @@ const server = http.createServer(async (req, res) => {
                 }
               ]
             };
-            
-            // Respond with acknowledgment
-            res.writeHead(200, {'Content-Type': 'application/json'});
+        
+            res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(message));
+            return;
           }
-          else {
-            res.writeHead(200, {'Content-Type': 'application/json'});
-            res.end(JSON.stringify({
-              text: "Unrecognized action"
-            }));
-          }
+        
+          // fallback for unknown payload
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            text: "Unrecognized action"
+          }));
         }
+                
         else {
           res.writeHead(200, {'Content-Type': 'application/json'});
           res.end(JSON.stringify({
