@@ -241,10 +241,9 @@ const server = http.createServer(async (req, res) => {
           
           // Simple text response for now
           const connectionsList = connections.map(conn => 
-           `• ${conn.Name} (${conn['💼 Current role']}) at ${conn['Current Organization']} - Contact: ${conn['Best Pursuit Contact']} - <${conn.LinkedIn}|LinkedIn>`
+            `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${conn['Current Organization']} - Contact: ${conn['Best Pursuit Contact']}`
           ).join('\n');
                    
-          
           res.writeHead(200, {'Content-Type': 'application/json'});
           res.end(JSON.stringify({
             text: `*Connections found matching "${searchTerm}":*\n\n${connectionsList}`,
