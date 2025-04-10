@@ -8,6 +8,10 @@ const querystring = require('querystring');
 // Store for our network data
 let networkData = [];
 
+const { WebClient } = require('@slack/web-api');
+const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+
+
 // Load network data from CSV
 function loadNetworkData() {
   networkData = [];
@@ -279,13 +283,9 @@ const server = http.createServer(async (req, res) => {
         else if (parsedBody.payload) {
           const payload = JSON.parse(parsedBody.payload);
           
-          if (payload.type === 'block_actions' && 
-              payload.actions && 
-              payload.actions[0].action_id === 'generate_email') {
-            
+          if (payload.type === 'block_actions' && payload.actions?.[0].action_id === 'generate_email') {
             const value = JSON.parse(payload.actions[0].value);
-            
-            // Send a modal to get the student's name
+          
             const modal = {
               trigger_id: payload.trigger_id,
               view: {
@@ -293,7 +293,7 @@ const server = http.createServer(async (req, res) => {
                 callback_id: "email_modal",
                 title: {
                   type: "plain_text",
-                  text: "Generate Introduction Email"
+                  text: "Generate Email"
                 },
                 blocks: [
                   {
@@ -323,10 +323,23 @@ const server = http.createServer(async (req, res) => {
                 }
               }
             };
-
-            // Respond with acknowledgment
-            res.writeHead(200, {'Content-Type': 'application/json'});
-            res.end(JSON.stringify(modal));
+          
+            // ✅ Call Slack API instead of responding directly
+            try {
+              await slackClient.views.open({
+                trigger_id: payload.trigger_id,
+                view: modal.view
+              });
+              res.writeHead(200);
+              res.end();
+              
+            } catch (err) {
+              console.error("Failed to open modal:", err);
+              res.writeHead(500);
+              res.end();
+            }
+            return;
+          }
           }
           // Handle modal submission
           else if (payload.type === 'view_submission' && 
