@@ -9,6 +9,16 @@ const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 let networkData = [];
 
+const doNotContactCompanies = [
+  "Ballistic Ventures", "Blackstone Cedar", "Citizens", "Citi", "David Energy",
+  "Dwolla", "Foursquare", "iCapital", "Macquarie", "Moody's", "Peloton",
+  "Poll Everywhere", "Quizlet", "Red Canary", "Ribbon", "SeatGeek", "Sift",
+  "Skillshare", "Spring Health", "The Knot Worldwide (TKWW)", "Thirty Madison",
+  "Thumbtack", "Uber"
+].map(name => name.toLowerCase());
+
+
+
 function normalizeText(text = '') {
   return text.toLowerCase().replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim();
 }
@@ -95,9 +105,14 @@ const server = http.createServer(async (req, res) => {
           const matches = findConnections(term);
 
           const formattedText = matches.length === 0
-            ? `❌ No matches found for "${term}".`
-            : `*Connections found matching "${term}":*\n\n` +
-              matches.map(conn => `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${conn['Current Organization']} - Contact: ${conn['Best Pursuit Contact']}`).join('\n');
+  ? `❌ No matches found for "${term}".`
+  : `*Connections found matching "${term}":*\n\n` +
+    matches.map(conn => {
+      const company = conn['Current Organization'] || '';
+      const isPartner = doNotContactCompanies.includes(company.toLowerCase());
+      const partnerNote = isPartner ? ' *_(Pursuit Partner – Do Not Contact)_*' : '';
+      return `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${company}${partnerNote} - Contact: ${conn['Best Pursuit Contact']}`;
+    }).join('\n');
 
           const fetch = require('node-fetch');
           await fetch(responseUrl, {
