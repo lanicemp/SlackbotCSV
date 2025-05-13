@@ -105,14 +105,19 @@ const server = http.createServer(async (req, res) => {
           const matches = findConnections(term);
 
           const formattedText = matches.length === 0
-  ? `❌ No matches found for "${term}".`
-  : `*Connections found matching "${term}":*\n\n` +
-    matches.map(conn => {
-      const company = conn['Current Organization'] || '';
-      const isPartner = doNotContactCompanies.includes(company.toLowerCase());
-      const partnerNote = isPartner ? ' *_(Pursuit Partner – Reach out to Tim Asprec)_*' : '';
-      return `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${company}${partnerNote} - Contact: ${conn['Best Pursuit Contact']}`;
-    }).join('\n');
+            ? `❌ No matches found for "${term}".`
+            : `*Connections found matching "${term}":*\n\n` +
+              matches.map(conn => {
+                const company = conn['Current Organization'] || '';
+                const isPartner = doNotContactCompanies.includes(company.toLowerCase());
+                const partnerNote = isPartner ? ' *_(Pursuit Partner – Do Not Contact)_*' : '';
+                
+                // Hide contact if it's "Shirin"
+                const contactName = (conn['Best Pursuit Contact'] || '').toLowerCase() === 'shirin' ? '' : conn['Best Pursuit Contact'];
+
+                return `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${company}${partnerNote}` +
+                      (contactName ? ` - Contact: ${contactName}` : '');
+          }).join('\n');
 
           const fetch = require('node-fetch');
           await fetch(responseUrl, {
