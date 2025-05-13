@@ -14,7 +14,7 @@ const doNotContactCompanies = [
   "Dwolla", "Foursquare", "iCapital", "Macquarie", "Moody's", "Peloton",
   "Poll Everywhere", "Quizlet", "Red Canary", "Ribbon", "SeatGeek", "Sift",
   "Skillshare", "Spring Health", "The Knot Worldwide (TKWW)", "Thirty Madison",
-  "Thumbtack", "Uber", "Macquarie Asset Management"
+  "Thumbtack", "Uber", "Macquarie Group"
 ].map(name => name.toLowerCase());
 
 
