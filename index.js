@@ -110,7 +110,7 @@ const server = http.createServer(async (req, res) => {
               matches.map(conn => {
                 const company = conn['Current Organization'] || '';
                 const isPartner = doNotContactCompanies.includes(company.toLowerCase());
-                const partnerNote = isPartner ? ' *_(Pursuit Partner – Do Not Contact)_*' : '';
+                const partnerNote = isPartner ? ' *_(Pursuit Partner – Reach out to Tim Asprec)_*' : '';
                 
                 // Hide contact if it's "Shirin"
                 const contactName = (conn['Best Pursuit Contact'] || '').toLowerCase() === 'shirin' ? '' : conn['Best Pursuit Contact'];
