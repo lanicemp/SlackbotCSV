@@ -6,6 +6,7 @@ const csv = require('csv-parser');
 const querystring = require('querystring');
 const { WebClient } = require('@slack/web-api');
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+const fetch = require('node-fetch');
 
 let networkData = [];
 
@@ -16,8 +17,6 @@ const doNotContactCompanies = [
   "Skillshare", "Spring Health", "The Knot Worldwide (TKWW)", "Thirty Madison",
   "Thumbtack", "Uber", "Macquarie Group"
 ].map(name => name.toLowerCase());
-
-
 
 function normalizeText(text = '') {
   return text.toLowerCase().replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim();
@@ -30,7 +29,7 @@ function loadNetworkData() {
       .pipe(csv())
       .on('data', row => networkData.push(row))
       .on('end', () => {
-        console.log('✅ Network data loaded.');
+        console.log('✅ Network data loaded. Total records:', networkData.length);
         resolve(networkData);
       })
       .on('error', reject);
@@ -73,6 +72,8 @@ function findConnections(searchTerm) {
 }
 
 const server = http.createServer(async (req, res) => {
+  console.log("➡️ Incoming request:", req.method, req.url);
+
   if (req.url === '/' || req.url === '') {
     const preview = networkData.length > 0 ? {
       totalRecords: networkData.length,
@@ -91,10 +92,13 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const parsedBody = querystring.parse(body);
+        console.log("📨 Parsed Slack body:", parsedBody);
 
         if (parsedBody.command === '/network') {
           const term = parsedBody.text;
           const responseUrl = parsedBody.response_url;
+
+          console.log("🔍 Search term:", term);
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
@@ -103,6 +107,7 @@ const server = http.createServer(async (req, res) => {
           }));
 
           const matches = findConnections(term);
+          console.log(`✅ Found ${matches.length} matches`);
 
           const formattedText = matches.length === 0
             ? `❌ No matches found for "${term}".`
@@ -110,17 +115,14 @@ const server = http.createServer(async (req, res) => {
               matches.map(conn => {
                 const company = conn['Current Organization'] || '';
                 const isPartner = doNotContactCompanies.includes(company.toLowerCase());
-                const partnerNote = isPartner ? ' ***Pursuit Partner – Reach out to Tim Asprec***' : '';
-
-                // Hide contact if it's "Shirin"
+                const partnerNote = isPartner ? ' *_(Pursuit Partner – Reach out to Tim Asprec)_*' : '';
                 const contactName = (conn['Best Pursuit Contact'] || '').toLowerCase() === 'shirin' ? '' : conn['Best Pursuit Contact'];
 
                 return `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${company}${partnerNote}` +
-                      (contactName ? ` - Contact: ${contactName}` : '');
-          }).join('\n');
+                       (contactName ? ` - Contact: ${contactName}` : '');
+              }).join('\n');
 
-          const fetch = require('node-fetch');
-          await fetch(responseUrl, {
+          const slackResponse = await fetch(responseUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -128,13 +130,17 @@ const server = http.createServer(async (req, res) => {
               text: formattedText
             })
           });
+
+          const data = await slackResponse.text();
+          console.log("✅ Slack responded with:", slackResponse.status, data);
+
           return;
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ text: 'Unknown request.' }));
       } catch (err) {
-        console.error('❌ Error:', err);
+        console.error('❌ Error during Slack command processing:', err);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ text: 'Something went wrong.' }));
       }
