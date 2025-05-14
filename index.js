@@ -122,14 +122,22 @@ const server = http.createServer(async (req, res) => {
                        (contactName ? ` - Contact: ${contactName}` : '');
               }).join('\n');
 
-          const slackResponse = await fetch(responseUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              response_type: 'ephemeral',
-              text: formattedText
-            })
-          });
+              const slackResponse = await fetch(responseUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  response_type: 'ephemeral',
+                  blocks: [
+                    {
+                      type: "section",
+                      text: {
+                        type: "mrkdwn",
+                        text: formattedText
+                      }
+                    }
+                  ]
+                })  // <-- This closing parenthesis is for JSON.stringify — you're missing the one for fetch!
+              });
 
           const data = await slackResponse.text();
           console.log("✅ Slack responded with:", slackResponse.status, data);
