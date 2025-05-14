@@ -97,18 +97,20 @@ const server = http.createServer(async (req, res) => {
         if (parsedBody.command === '/network') {
           const term = parsedBody.text;
           const responseUrl = parsedBody.response_url;
-
+        
           console.log("🔍 Search term:", term);
-
+        
+          // 1. Respond to Slack immediately
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             response_type: 'ephemeral',
             text: `🔍 Searching for: "${term}"...`
           }));
-
+        
+          // 2. Do everything else asynchronously
           const matches = findConnections(term);
           console.log(`✅ Found ${matches.length} matches`);
-
+        
           const formattedText = matches.length === 0
             ? `❌ No matches found for "${term}".`
             : `*Connections found matching "${term}":*\n\n` +
@@ -117,33 +119,38 @@ const server = http.createServer(async (req, res) => {
                 const isPartner = doNotContactCompanies.includes(company.toLowerCase());
                 const partnerNote = isPartner ? ' *_(Pursuit Partner – Reach out to Tim Asprec)_*' : '';
                 const contactName = (conn['Best Pursuit Contact'] || '').toLowerCase() === 'shirin' ? '' : conn['Best Pursuit Contact'];
-
+        
                 return `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${company}${partnerNote}` +
                        (contactName ? ` - Contact: ${contactName}` : '');
               }).join('\n');
-
-              const slackResponse = await fetch(responseUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  response_type: 'ephemeral',
-                  blocks: [
-                    {
-                      type: "section",
-                      text: {
-                        type: "mrkdwn",
-                        text: formattedText
-                      }
+        
+          // 3. Then post the full result to Slack
+          try {
+            const slackResponse = await fetch(responseUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                response_type: 'ephemeral',
+                blocks: [
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: formattedText
                     }
-                  ]
-                })  // <-- This closing parenthesis is for JSON.stringify — you're missing the one for fetch!
-              });
-
-          const data = await slackResponse.text();
-          console.log("✅ Slack responded with:", slackResponse.status, data);
-
+                  }
+                ]
+              })
+            });
+        
+            const data = await slackResponse.text();
+            console.log("✅ Slack responded with:", slackResponse.status, data);
+          } catch (err) {
+            console.error('❌ Failed to send formatted response to Slack:', err);
+          }
+        
           return;
-        }
+        } 
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ text: 'Unknown request.' }));
