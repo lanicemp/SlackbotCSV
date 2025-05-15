@@ -87,6 +87,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url === '/slack/events' && req.method === 'POST') {
+    console.log("📬 Received Slack request:", req.method, req.url);
+
     let body = '';
     req.on('data', chunk => body += chunk.toString());
     req.on('end', async () => {
@@ -127,6 +129,7 @@ const server = http.createServer(async (req, res) => {
           // 3. Then post the full result to Slack
           try {
             const slackResponse = await fetch(responseUrl, {
+
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
