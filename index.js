@@ -134,18 +134,9 @@ const server = http.createServer(async (req, res) => {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 response_type: 'ephemeral',
-                blocks: [
-                  {
-                    type: "section",
-                    text: {
-                      type: "mrkdwn",
-                      text: formattedText
-                    }
-                  }
-                ]
+                text: formattedText  // no blocks
               })
-            });
-        
+            })
             const data = await slackResponse.text();
             console.log("✅ Slack responded with:", slackResponse.status, data);
           } catch (err) {
