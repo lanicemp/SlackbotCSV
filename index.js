@@ -22,7 +22,7 @@ const doNotContactCompanies = [
 // List of current staff allowed for matching
 const currentStaff = [
   "Aaron Kinnari", "Afiya Augustine", "Agnieszka Zebzda", "Alexis Medina",
-  "Andrew Tein", "Ari Bilici", "Becky", "Bryson Hopkins", "Carlos Godoy",
+  "Andrew Tein", "Ari Bilici", "Becky Lee", "Bryson Hopkins", "Carlos Godoy",
   "Caroline Oh", "David Yang", "Debby", "Emma Pendon", "Eugene Shvartsman",
   "Greg Hogue", "Guilherme Barros", "Jacqueline Reverand", "Jessica Davila",
   "Joanna Patterson", "José Mejia", "JP Bowditch", "Jukay Hsu", "Kirstie Chen",
