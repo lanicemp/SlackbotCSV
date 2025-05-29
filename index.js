@@ -10,6 +10,7 @@ const fetch = require('node-fetch');
 
 let networkData = [];
 
+// List of companies marked as Do Not Contact
 const doNotContactCompanies = [
   "Ballistic Ventures", "Blackstone Cedar", "Citizens", "Citi", "David Energy",
   "Dwolla", "Foursquare", "iCapital", "Macquarie", "Moody's", "Peloton",
@@ -18,50 +19,18 @@ const doNotContactCompanies = [
   "Thumbtack", "Uber", "Macquarie Group"
 ].map(name => name.toLowerCase());
 
+// List of current staff allowed for matching
 const currentStaff = [
-  'Aaron Kinnari',
-  'Afiya Augustine',
-  'Agnieszka Zebzda',
-  'Alexis Medina',
-  'Andrew Tein',
-  'Ari Bilici',
-  'Becky',
-  'Bryson Hopkins',
-  'Carlos Godoy',
-  'Caroline Oh',
-  'David Yang',
-  'Debby',
-  'Emma Pendon',
-  'Eugene Shvartsman',
-  'Greg Hogue',
-  'Guilherme Barros',
-  'Jacqueline Reverand',
-  'Jessica Davila',
-  'Joanna Patterson',
-  'José Mejia',
-  'JP Bowditch',
-  'Jukay Hsu',
-  'Kirstie Chen',
-  'LaNice Powell',
-  'Laziah Bernstine',
-  'Luna Aizarani',
-  'Ophelia Chua',
-  'Pak Chu',
-  'Rebecca Qian',
-  'Stefano Barros',
-  'Stephanie Miliano',
-  'SysAdmin',
-  'Talya Erdfarb',
-  'Tess Marchant',
-  'Tim Asprec',
-  'Trent Whisenant',
-  'Victoria Mayo',
-  'William Nervig',
-  'Yong Kang',
-  'Yoshiyuki Minami'
+  "Aaron Kinnari", "Afiya Augustine", "Agnieszka Zebzda", "Alexis Medina",
+  "Andrew Tein", "Ari Bilici", "Becky", "Bryson Hopkins", "Carlos Godoy",
+  "Caroline Oh", "David Yang", "Debby", "Emma Pendon", "Eugene Shvartsman",
+  "Greg Hogue", "Guilherme Barros", "Jacqueline Reverand", "Jessica Davila",
+  "Joanna Patterson", "José Mejia", "JP Bowditch", "Jukay Hsu", "Kirstie Chen",
+  "LaNice Powell", "Laziah Bernstine", "Luna Aizarani", "Ophelia Chua", "Pak Chu",
+  "Rebecca Qian", "Stefano Barros", "Stephanie Miliano", "SysAdmin",
+  "Talya Erdfarb", "Tess Marchant", "Tim Asprec", "Trent Whisenant",
+  "Victoria Mayo", "William Nervig", "Yong Kang", "Yoshiyuki Minami"
 ].map(name => name.toLowerCase());
-
-
 
 function normalizeText(text = '') {
   return text.toLowerCase().replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim();
@@ -87,7 +56,7 @@ function findConnections(searchTerm) {
   if (searchTerm.includes(':')) {
     const match = (label) => {
       const value = (searchTerm.match(new RegExp(`${label}:\\s*([^,]+)`, 'i')) || [])[1];
-      return normalizeText(value);
+      return normalizeText(value || '');
     };
 
     const criteria = {
@@ -102,17 +71,24 @@ function findConnections(searchTerm) {
       const role = normalizeText(entry['💼 Current role'] || '');
       const staff = normalizeText(entry['Best Pursuit Contact'] || '');
       const combo = `${org} ${role}`;
+      const isCurrentStaff = currentStaff.includes(staff);
 
-      return (!criteria.company || org.includes(criteria.company)) &&
-             (!criteria.title || role.includes(criteria.title)) &&
-             (!criteria.staff || staff.includes(criteria.staff)) &&
-             (!criteria.industry || combo.includes(criteria.industry));
+      return isCurrentStaff &&
+        (!criteria.company || org.includes(criteria.company)) &&
+        (!criteria.title || role.includes(criteria.title)) &&
+        (!criteria.staff || staff.includes(criteria.staff)) &&
+        (!criteria.industry || combo.includes(criteria.industry));
     });
   }
 
   return networkData.filter(entry => {
-    return normalizeText(entry['Current Organization'] || '').includes(normalizedTerm) ||
-           normalizeText(entry['💼 Current role'] || '').includes(normalizedTerm);
+    const org = normalizeText(entry['Current Organization'] || '');
+    const role = normalizeText(entry['💼 Current role'] || '');
+    const staff = normalizeText(entry['Best Pursuit Contact'] || '');
+    const isCurrentStaff = currentStaff.includes(staff);
+
+    return isCurrentStaff &&
+      (org.includes(normalizedTerm) || role.includes(normalizedTerm));
   });
 }
 
@@ -144,20 +120,20 @@ const server = http.createServer(async (req, res) => {
         if (parsedBody.command === '/network') {
           const term = parsedBody.text;
           const responseUrl = parsedBody.response_url;
-        
+
           console.log("🔍 Search term:", term);
-        
-          // 1. Respond to Slack immediately
+
+          // Immediate Slack acknowledgment
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             response_type: 'ephemeral',
             text: `🔍 Searching for: "${term}"...`
           }));
-        
-          // 2. Do everything else asynchronously
+
+          // Find matches
           const matches = findConnections(term);
           console.log(`✅ Found ${matches.length} matches`);
-        
+
           const formattedText = matches.length === 0
             ? `❌ No matches found for "${term}".`
             : `*Connections found matching "${term}":*\n\n` +
@@ -166,30 +142,29 @@ const server = http.createServer(async (req, res) => {
                 const isPartner = doNotContactCompanies.includes(company.toLowerCase());
                 const partnerNote = isPartner ? ' *_(Pursuit Partner – Reach out to Tim Asprec)_*' : '';
                 const contactName = (conn['Best Pursuit Contact'] || '').toLowerCase() === 'shirin' ? '' : conn['Best Pursuit Contact'];
-        
+
                 return `• <${conn.LinkedIn}|${conn.Name}> (${conn['💼 Current role']}) at ${company}${partnerNote}` +
                        (contactName ? ` - Contact: ${contactName}` : '');
               }).join('\n');
-        
-          // 3. Then post the full result to Slack
+
+          // Post back to Slack
           try {
             const slackResponse = await fetch(responseUrl, {
-
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 response_type: 'ephemeral',
-                text: formattedText  // no blocks
+                text: formattedText
               })
-            })
+            });
             const data = await slackResponse.text();
             console.log("✅ Slack responded with:", slackResponse.status, data);
           } catch (err) {
             console.error('❌ Failed to send formatted response to Slack:', err);
           }
-        
+
           return;
-        } 
+        }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ text: 'Unknown request.' }));
