@@ -18,6 +18,51 @@ const doNotContactCompanies = [
   "Thumbtack", "Uber", "Macquarie Group"
 ].map(name => name.toLowerCase());
 
+const currentStaff = [
+  'Aaron Kinnari',
+  'Afiya Augustine',
+  'Agnieszka Zebzda',
+  'Alexis Medina',
+  'Andrew Tein',
+  'Ari Bilici',
+  'Becky',
+  'Bryson Hopkins',
+  'Carlos Godoy',
+  'Caroline Oh',
+  'David Yang',
+  'Debby',
+  'Emma Pendon',
+  'Eugene Shvartsman',
+  'Greg Hogue',
+  'Guilherme Barros',
+  'Jacqueline Reverand',
+  'Jessica Davila',
+  'Joanna Patterson',
+  'José Mejia',
+  'JP Bowditch',
+  'Jukay Hsu',
+  'Kirstie Chen',
+  'LaNice Powell',
+  'Laziah Bernstine',
+  'Luna Aizarani',
+  'Ophelia Chua',
+  'Pak Chu',
+  'Rebecca Qian',
+  'Stefano Barros',
+  'Stephanie Miliano',
+  'SysAdmin',
+  'Talya Erdfarb',
+  'Tess Marchant',
+  'Tim Asprec',
+  'Trent Whisenant',
+  'Victoria Mayo',
+  'William Nervig',
+  'Yong Kang',
+  'Yoshiyuki Minami'
+].map(name => name.toLowerCase());
+
+
+
 function normalizeText(text = '') {
   return text.toLowerCase().replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim();
 }
