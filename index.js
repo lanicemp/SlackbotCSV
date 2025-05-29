@@ -74,7 +74,7 @@ function findConnections(searchTerm) {
       const isCurrentStaff = currentStaff.includes(staff);
 
       return isCurrentStaff &&
-        (!criteria.company || org.includes(criteria.company)) &&
+        (!criteria.company || org.split(' ').includes(criteria.company)) &&
         (!criteria.title || role.includes(criteria.title)) &&
         (!criteria.staff || staff.includes(criteria.staff)) &&
         (!criteria.industry || combo.includes(criteria.industry));
