@@ -68,16 +68,19 @@ function findConnections(searchTerm) {
 
     return networkData.filter(entry => {
       const org = normalizeText(entry['Current Organization'] || '');
-      const role = normalizeText(entry['💼 Current role'] || '');
-      const staff = normalizeText(entry['Best Pursuit Contact'] || '');
-      const combo = `${org} ${role}`;
-      const isCurrentStaff = currentStaff.includes(staff);
+const role = normalizeText(entry['💼 Current role'] || '');
+const staff = normalizeText(entry['Best Pursuit Contact'] || '');
+const combo = `${org} ${role}`;
+const isCurrentStaff = currentStaff.includes(staff);
 
-      return isCurrentStaff &&
-        (!criteria.company || org.split(' ').includes(criteria.company)) &&
-        (!criteria.title || role.includes(criteria.title)) &&
-        (!criteria.staff || staff.includes(criteria.staff)) &&
-        (!criteria.industry || combo.includes(criteria.industry));
+const companyRegex = criteria.company ? new RegExp(`\\b${criteria.company}\\b`, 'i') : null;
+
+return isCurrentStaff &&
+  (!criteria.company || companyRegex.test(org)) &&
+  (!criteria.title || role.includes(criteria.title)) &&
+  (!criteria.staff || staff.includes(criteria.staff)) &&
+  (!criteria.industry || combo.includes(criteria.industry));
+
     });
   }
 
